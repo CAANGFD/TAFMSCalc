@@ -1,374 +1,389 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { 
-  Calculator, 
-  Calendar, 
-  Info, 
-  Plus, 
-  Trash2, 
-  Award, 
-  Clock, 
-  TrendingUp,
-  FileText,
-  AlertCircle,
-  Upload,
-  CheckCircle2,
-  RefreshCw,
-  ChevronDown,
-  DollarSign
-} from 'lucide-react';
-
-// 2026 Basic Pay Table (Projected 3.8% Increase)
-// Structured for common Guard career progression
-const PAY_CHART_2026 = {
-  // Enlisted
-  "E-4": { "<2": 3142, "2": 3303, "3": 3482, "4": 3659, "6": 3815, "8": 3815, "10": 3815, "12": 3815, "14": 3815, "16": 3815, "18": 3815, "20": 3815, "22": 3815, "24": 3815, "26": 3815 },
-  "E-5": { "<2": 3343, "2": 3598, "3": 3776, "4": 3947, "6": 4110, "8": 4300, "10": 4510, "12": 4510, "14": 4510, "16": 4510, "18": 4510, "20": 4510, "22": 4510, "24": 4510, "26": 4510 },
-  "E-6": { "<2": 3401, "2": 3743, "3": 3908, "4": 4068, "6": 4236, "8": 4613, "10": 4759, "12": 5043, "14": 5130, "16": 5194, "18": 5268, "20": 5268, "22": 5268, "24": 5268, "26": 5268 },
-  "E-7": { "<2": 3932, "2": 4291, "3": 4456, "4": 4673, "6": 4844, "8": 5136, "10": 5300, "12": 5591, "14": 5834, "16": 6001, "18": 6177, "20": 6246, "22": 6475, "24": 6598, "26": 7067 },
-  "E-8": { "8": 6811, "10": 5907, "12": 6061, "14": 6247, "16": 6448, "18": 6811, "20": 6995, "22": 7308, "24": 7482, "26": 7909, "28": 7909, "30": 8067 },
-  "E-9": { "10": 6910, "12": 7067, "14": 7264, "16": 7496, "18": 7731, "20": 8105, "22": 8423, "24": 8756, "26": 9268, "28": 9268, "30": 9731 },
-  // Officers
-  "O-1": { "<2": 4150, "2": 4320, "3": 5222, "4": 5222, "6": 5222 },
-  "O-2": { "<2": 4782, "2": 5446, "3": 6272, "4": 6484, "6": 6618 },
-  "O-3": { "<2": 5535, "2": 6273, "3": 6771, "4": 7383, "6": 7737, "8": 8125, "10": 8376, "12": 8788, "14": 9004, "16": 9004, "18": 9004, "20": 9004 },
-  "O-4": { "<2": 6294, "2": 7286, "3": 7773, "4": 7881, "6": 8332, "8": 8816, "10": 9419, "12": 9887, "14": 10214, "16": 10401, "18": 10509, "20": 10509 },
-  "O-5": { "<2": 7295, "2": 8219, "3": 8787, "4": 8894, "6": 9250, "8": 9461, "10": 9928, "12": 10272, "14": 10715, "16": 11391, "18": 11714, "20": 12033, "22": 12395 },
-  "O-6": { "<2": 8751, "2": 9614, "3": 10245, "4": 10245, "6": 10284, "8": 10725, "10": 10783, "12": 10783, "14": 11396, "16": 12480, "18": 13116, "20": 13751, "22": 14113, "24": 14479, "26": 15189 }
-};
-
-const LONGEVITY_STEPS = ["<2", "2", "3", "4", "6", "8", "10", "12", "14", "16", "18", "20", "22", "24", "26", "28", "30"];
-
-const App = () => {
-  // State for Active Duty Periods
-  const [adPeriods, setAdPeriods] = useState([
-    { id: 1, startDate: '', endDate: '', description: 'Initial Entry/BMT' }
-  ]);
-
-  // State for Points
-  const [pointsData, setPointsData] = useState({
-    membership: 15,
-    drillPoints: 48,
-    activeDutyPoints: 0,
-    correspondence: 0,
-    yearsOfService: 1
-  });
-
-  // State for Pay & Rank
-  const [selectedRank, setSelectedRank] = useState("E-6");
-  const [selectedLongevity, setSelectedLongevity] = useState("20");
-  const [manualPay, setManualPay] = useState(null);
-  const [isParsing, setIsParsing] = useState(false);
-  const fileInputRef = useRef(null);
-
-  // Derive current pay from chart or manual input
-  const currentBasicPay = useMemo(() => {
-    if (manualPay !== null) return manualPay;
-    const rankData = PAY_CHART_2026[selectedRank] || {};
-    // Find closest longevity if exact match doesn't exist
-    return rankData[selectedLongevity] || rankData["<2"] || 0;
-  }, [selectedRank, selectedLongevity, manualPay]);
-  
-  // Date Logic
-  const calculateDays = (start, end) => {
-    if (!start || !end) return 0;
-    const s = new Date(start);
-    const e = new Date(end);
-    const diffTime = Math.abs(e - s);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-    return diffDays > 0 ? diffDays : 0;
-  };
-
-  // Main Logic
-  const totalADDays = useMemo(() => {
-    return adPeriods.reduce((acc, period) => acc + calculateDays(period.startDate, period.endDate), 0);
-  }, [adPeriods]);
-
-  const tafmsYears = (totalADDays / 365.25).toFixed(2);
-  
-  const totalPoints = useMemo(() => {
-    return (pointsData.membership * pointsData.yearsOfService) + 
-           (pointsData.drillPoints * pointsData.yearsOfService) + 
-           (totalADDays) + 
-           pointsData.correspondence;
-  }, [pointsData, totalADDays]);
-
-  const reserveRetirementYears = (totalPoints / 360).toFixed(2);
-  
-  const estimatedMonthlyPay = useMemo(() => {
-    // Multiplier: 2.5% for Legacy High-3
-    return (parseFloat(reserveRetirementYears) * 0.025 * currentBasicPay).toFixed(2);
-  }, [reserveRetirementYears, currentBasicPay]);
-
-  // Handlers
-  const handleFileUpload = (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-    setIsParsing(true);
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = e.target.result;
-      const dateRegex = /(\d{2}-[A-Z]{3}-\d{4})/g;
-      const foundDates = text.match(dateRegex) || [];
-      const yearsMatch = text.match(/TOTAL YRS[:\s]+(\d+)/i);
-      setTimeout(() => {
-        if (foundDates.length >= 2) {
-          const newPeriods = [];
-          for (let i = 0; i < foundDates.length - 1; i += 2) {
-            newPeriods.push({
-              id: Date.now() + i,
-              startDate: new Date(foundDates[i]).toISOString().split('T')[0],
-              endDate: new Date(foundDates[i+1]).toISOString().split('T')[0],
-              description: `Extracted Period ${Math.floor(i/2) + 1}`
-            });
-          }
-          if (newPeriods.length > 0) setAdPeriods(newPeriods);
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ANG TAFMS & Retirement Calculator</title>
+    <!-- Core Dependencies -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .font-mono { font-family: 'JetBrains+Mono', monospace; }
+        
+        /* Print Styles */
+        @media print {
+            .no-print { display: none !important; }
+            body { background: white; padding: 0; }
+            .print-container { box-shadow: none !important; border: 1px solid #e2e8f0 !important; }
+            .bg-gradient-to-br { background: #f8fafc !important; color: #1e3a8a !important; border: 2px solid #1e3a8a !important; }
+            .text-blue-200, .text-blue-300 { color: #475569 !important; }
+            #final-pension { color: #1e3a8a !important; font-size: 3rem !important; }
+            .section-card { border: 1px solid #e2e8f0 !important; margin-bottom: 1rem !important; }
         }
-        if (yearsMatch) setPointsData(prev => ({ ...prev, yearsOfService: parseInt(yearsMatch[1]) }));
-        setIsParsing(false);
-      }, 1000);
-    };
-    reader.readAsText(file);
-  };
 
-  const addPeriod = () => setAdPeriods([...adPeriods, { id: Date.now(), startDate: '', endDate: '', description: '' }]);
-  const removePeriod = (id) => adPeriods.length > 1 && setAdPeriods(adPeriods.filter(p => p.id !== id));
-  const updatePeriod = (id, field, value) => setAdPeriods(adPeriods.map(p => p.id === id ? { ...p, [field]: value } : p));
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        
+        /* Animation for parsing */
+        @keyframes pulse-blue {
+            0%, 100% { border-color: rgba(59, 130, 246, 0.5); }
+            50% { border-color: rgba(59, 130, 246, 1); }
+        }
+        .parsing-active { animation: pulse-blue 2s infinite; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen p-4 md:p-8">
 
-  return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 p-4 md:p-8 font-sans">
-      <div className="max-w-5xl mx-auto">
-        {/* Header */}
-        <header className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-blue-900 flex items-center gap-2">
-              <Calculator className="w-8 h-8 text-blue-600" />
-              ANG TAFMS & Retirement Planner
-            </h1>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="bg-green-100 text-green-700 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider">Live 2026 Pay Rates</span>
-              <p className="text-slate-500 text-sm">Calculate TAFMS and Reserve Points using official DFAS tables</p>
+    <div class="max-w-6xl mx-auto">
+        <!-- Header -->
+        <header class="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+                <h1 class="text-3xl font-extrabold text-blue-900 flex items-center gap-2">
+                    <i data-lucide="calculator" class="w-8 h-8 text-blue-600"></i>
+                    ANG TAFMS & Retirement Planner
+                </h1>
+                <div class="flex items-center gap-2 mt-1 no-print">
+                    <span class="bg-green-100 text-green-700 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider">Projected 2026 Pay Rates</span>
+                    <p class="text-slate-500 text-sm">Unofficial planning tool for Air National Guard members</p>
+                </div>
             </div>
-          </div>
-          <div className="flex gap-3">
-            <div className="bg-blue-600 text-white px-4 py-2 rounded-lg shadow-md flex items-center gap-3">
-              <div className="text-right">
-                <p className="text-xs opacity-80 uppercase font-bold tracking-wider">TAFMS Total</p>
-                <p className="text-xl font-mono">{tafmsYears} Years</p>
-              </div>
-              <Clock className="w-6 h-6 opacity-50" />
+            <div id="tafms-badge" class="bg-blue-600 text-white px-6 py-3 rounded-2xl shadow-lg flex items-center gap-4">
+                <div class="text-right">
+                    <p class="text-xs opacity-80 uppercase font-bold tracking-wider">Total TAFMS</p>
+                    <p id="total-tafms-display" class="text-2xl font-mono">0.00 Years</p>
+                </div>
+                <i data-lucide="clock" class="w-8 h-8 opacity-50"></i>
             </div>
-          </div>
         </header>
 
-        {/* Upload Section */}
-        <div className="mb-8">
-          <div className="bg-white border-2 border-dashed border-blue-200 rounded-2xl p-6 text-center hover:border-blue-400 transition-all cursor-pointer group relative"
-               onClick={() => fileInputRef.current.click()}>
-            <input type="file" ref={fileInputRef} className="hidden" accept=".txt,.pdf" onChange={handleFileUpload} />
-            {isParsing ? (
-              <div className="flex flex-col items-center py-2">
-                <RefreshCw className="w-10 h-10 text-blue-500 animate-spin mb-3" />
-                <p className="text-blue-900 font-semibold">Analyzing Service Records...</p>
-              </div>
-            ) : (
-              <div className="flex items-center justify-center gap-4">
-                <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center group-hover:bg-blue-100 transition-colors">
-                  <Upload className="w-5 h-5" />
+        <!-- PCARS Text Area (Better than file upload for mobile/simple use) -->
+        <div class="mb-8 no-print">
+            <div class="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm">
+                <h3 class="text-lg font-bold text-slate-800 mb-2 flex items-center gap-2">
+                    <i data-lucide="zap" class="w-5 h-5 text-yellow-500"></i>
+                    Quick Import from PCARS
+                </h3>
+                <p class="text-slate-500 text-sm mb-4">Paste the text from your <strong>vMPF Point Credit Summary</strong> below. The tool will scan for active duty dates and total years automatically.</p>
+                <textarea id="pcars-input" placeholder="Paste PCARS text here..." class="w-full h-24 p-4 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none resize-none mb-3"></textarea>
+                <div class="flex justify-between items-center">
+                    <button onclick="parseText()" class="bg-blue-600 text-white px-6 py-2 rounded-xl font-bold text-sm hover:bg-blue-700 transition-all flex items-center gap-2">
+                        <i data-lucide="search" class="w-4 h-4"></i> Scan Text
+                    </button>
+                    <div id="parse-status" class="text-xs font-bold text-blue-500 hidden items-center gap-1">
+                        <i data-lucide="check" class="w-3 h-3"></i> Scanned successfully
+                    </div>
                 </div>
-                <div className="text-left">
-                  <h3 className="text-lg font-bold text-slate-800">Fast-Track with PCARS</h3>
-                  <p className="text-slate-500 text-sm">Drop your point summary here to auto-populate the table below.</p>
-                </div>
-              </div>
-            )}
-          </div>
+            </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Main Controls */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* TAFMS Entry */}
-            <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold flex items-center gap-2">
-                  <Calendar className="w-5 h-5 text-blue-500" />
-                  Active Duty Periods (TAFMS)
-                </h2>
-                <button onClick={addPeriod} className="text-sm bg-blue-50 text-blue-600 hover:bg-blue-100 px-3 py-1 rounded-full font-medium transition-colors flex items-center gap-1">
-                  <Plus className="w-4 h-4" /> Add
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Left: Inputs -->
+            <div class="lg:col-span-2 space-y-6">
+                <!-- AD Periods -->
+                <section class="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 section-card">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-lg font-bold flex items-center gap-2 text-blue-900">
+                            <i data-lucide="calendar" class="w-5 h-5 text-blue-500 no-print"></i>
+                            Active Duty Periods (TAFMS Calculation)
+                        </h2>
+                        <button onclick="addPeriod()" class="no-print bg-blue-50 text-blue-600 hover:bg-blue-100 px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-1 transition-colors">
+                            <i data-lucide="plus" class="w-4 h-4"></i> Add
+                        </button>
+                    </div>
+                    <div id="periods-container" class="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+                        <!-- Periods injected here -->
+                    </div>
+                </section>
+
+                <!-- Points -->
+                <section class="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 section-card">
+                    <h2 class="text-lg font-bold flex items-center gap-2 mb-6 text-purple-900">
+                        <i data-lucide="award" class="w-5 h-5 text-purple-500 no-print"></i>
+                        Career Longevity & Points
+                    </h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Estimated Total Career Years</label>
+                                <input type="number" id="career-years" value="20" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-purple-500 outline-none transition-all" oninput="calculate()">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Avg Drill Points / Year</label>
+                                <input type="number" id="drill-points" value="48" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-purple-500 outline-none transition-all" oninput="calculate()">
+                            </div>
+                        </div>
+                        <div class="bg-slate-50 p-6 rounded-2xl flex flex-col justify-center border border-slate-100">
+                            <div class="flex justify-between items-center mb-2">
+                                <span class="text-slate-500 text-sm">Membership Points</span>
+                                <span class="font-bold text-slate-700">15 / yr</span>
+                            </div>
+                            <div class="flex justify-between items-center mb-4 pb-4 border-b border-slate-200">
+                                <span class="text-slate-500 text-sm">Correspondence/Misc</span>
+                                <input type="number" id="other-points" value="0" class="w-20 bg-transparent text-right font-bold text-slate-700 outline-none" oninput="calculate()">
+                            </div>
+                            <div class="flex justify-between items-center">
+                                <span class="font-bold text-blue-900">Estimated Total Points</span>
+                                <span id="total-points-display" class="text-2xl font-mono font-bold text-blue-600">0</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Right: Results & Pay -->
+            <div class="space-y-6">
+                <!-- Pay Lookup -->
+                <div class="bg-white p-6 rounded-3xl shadow-sm border-2 border-blue-100 no-print">
+                    <h3 class="text-sm font-bold text-blue-900 uppercase tracking-widest mb-6 flex items-center gap-2">
+                        <i data-lucide="dollar-sign" class="w-4 h-4"></i>
+                        2026 Pay Estimates
+                    </h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Estimated Final Rank</label>
+                            <select id="rank-select" class="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl text-sm font-bold outline-none cursor-pointer hover:border-blue-300 transition-all" onchange="calculate()">
+                                <optgroup label="Enlisted">
+                                    <option value="E-4">E-4 Senior Airman</option>
+                                    <option value="E-5">E-5 Staff Sergeant</option>
+                                    <option value="E-6" selected>E-6 Tech Sergeant</option>
+                                    <option value="E-7">E-7 Master Sergeant</option>
+                                    <option value="E-8">E-8 Senior Master Sgt</option>
+                                    <option value="E-9">E-9 Chief Master Sgt</option>
+                                </optgroup>
+                                <optgroup label="Officer">
+                                    <option value="O-1">O-1 Second Lieutenant</option>
+                                    <option value="O-2">O-2 First Lieutenant</option>
+                                    <option value="O-3">O-3 Captain</option>
+                                    <option value="O-4">O-4 Major</option>
+                                    <option value="O-5">O-5 Lieutenant Colonel</option>
+                                    <option value="O-6">O-6 Colonel</option>
+                                </optgroup>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Pay Date Longevity</label>
+                            <select id="longevity-select" class="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl text-sm font-bold outline-none cursor-pointer hover:border-blue-300 transition-all" onchange="calculate()">
+                                <option value="<2">Less than 2</option>
+                                <option value="2">2 Years</option>
+                                <option value="3">3 Years</option>
+                                <option value="4">4 Years</option>
+                                <option value="6">6 Years</option>
+                                <option value="8">8 Years</option>
+                                <option value="10">10 Years</option>
+                                <option value="12">12 Years</option>
+                                <option value="14">14 Years</option>
+                                <option value="16">16 Years</option>
+                                <option value="18">18 Years</option>
+                                <option value="20" selected>Over 20 Years</option>
+                                <option value="22">Over 22 Years</option>
+                                <option value="24">Over 24 Years</option>
+                                <option value="26">Over 26 Years</option>
+                                <option value="30">Over 30 Years</option>
+                            </select>
+                        </div>
+                        <div class="pt-4 border-t border-slate-100">
+                            <div class="flex justify-between items-center">
+                                <span class="text-xs font-bold text-slate-400 uppercase">Est. Basic Pay (2026)</span>
+                                <span id="basic-pay-display" class="text-xl font-mono font-bold text-slate-800">$0.00</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Final Estimate -->
+                <div class="bg-gradient-to-br from-blue-900 to-indigo-900 text-white p-8 rounded-3xl shadow-xl relative overflow-hidden section-card">
+                    <i data-lucide="trending-up" class="absolute -right-4 -bottom-4 w-32 h-32 opacity-10 no-print"></i>
+                    <h3 class="text-xl font-bold mb-6 flex items-center gap-2">
+                        Retirement Forecast
+                    </h3>
+                    <div class="space-y-4 mb-8">
+                        <div class="flex justify-between items-center text-sm">
+                            <span class="text-blue-200">Multiplier (Legacy)</span>
+                            <span class="font-mono font-bold">2.5% High-3</span>
+                        </div>
+                        <div class="flex justify-between items-center text-sm">
+                            <span class="text-blue-200">1405 Date Credit</span>
+                            <span id="credit-1405" class="font-mono font-bold text-yellow-400">0.0 Months</span>
+                        </div>
+                        <div class="flex justify-between items-center text-sm border-t border-blue-800 pt-3">
+                            <span class="text-blue-200">Point Years Equivalent</span>
+                            <span id="point-years" class="font-mono font-bold">0.00</span>
+                        </div>
+                    </div>
+                    <div class="text-center">
+                        <p class="text-[10px] text-blue-300 uppercase font-bold tracking-widest mb-1">Estimated Monthly Pension</p>
+                        <div class="flex items-baseline justify-center gap-1">
+                            <span id="final-pension" class="text-5xl font-black text-white">$0.00</span>
+                        </div>
+                        <p class="text-[10px] text-blue-400 mt-6 leading-relaxed italic">
+                            *This estimate assumes a Legacy High-3 retirement. For BRS members, the multiplier is 2.0%.
+                        </p>
+                    </div>
+                </div>
+
+                <button onclick="window.print()" class="w-full bg-white text-blue-900 border border-blue-200 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-blue-50 transition-all no-print shadow-sm">
+                    <i data-lucide="printer" class="w-5 h-5"></i> Save / Print Summary
                 </button>
-              </div>
-              <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                {adPeriods.map((p) => (
-                  <div key={p.id} className="grid grid-cols-1 md:grid-cols-12 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100 items-end">
-                    <div className="md:col-span-4">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase">Task/Order</label>
-                      <input type="text" className="w-full px-2 py-1.5 text-sm rounded-lg border border-slate-200" value={p.description} onChange={(e) => updatePeriod(p.id, 'description', e.target.value)} />
-                    </div>
-                    <div className="md:col-span-3">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase">Start</label>
-                      <input type="date" className="w-full px-2 py-1.5 text-sm rounded-lg border border-slate-200" value={p.startDate} onChange={(e) => updatePeriod(p.id, 'startDate', e.target.value)} />
-                    </div>
-                    <div className="md:col-span-3">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase">End</label>
-                      <input type="date" className="w-full px-2 py-1.5 text-sm rounded-lg border border-slate-200" value={p.endDate} onChange={(e) => updatePeriod(p.id, 'endDate', e.target.value)} />
-                    </div>
-                    <div className="md:col-span-2 flex items-center justify-end gap-2">
-                      <div className="text-center">
-                        <span className="text-[10px] text-slate-400 block uppercase">Days</span>
-                        <span className="font-mono font-bold text-blue-700">{calculateDays(p.startDate, p.endDate)}</span>
-                      </div>
-                      <button onClick={() => removePeriod(p.id)} className="p-1 text-slate-300 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            {/* Career Longevity */}
-            <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-              <h2 className="text-lg font-semibold flex items-center gap-2 mb-6">
-                <Award className="w-5 h-5 text-purple-500" />
-                Reserve Points & Career Longevity
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Total Career Length (Years)</label>
-                    <input type="number" className="w-full px-3 py-2 rounded-lg border border-slate-200" value={pointsData.yearsOfService} onChange={(e) => setPointsData({...pointsData, yearsOfService: parseInt(e.target.value) || 0})} />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Estimated Yearly Drill Points (UTA)</label>
-                    <input type="number" className="w-full px-3 py-2 rounded-lg border border-slate-200" value={pointsData.drillPoints} onChange={(e) => setPointsData({...pointsData, drillPoints: parseInt(e.target.value) || 0})} />
-                  </div>
-                </div>
-                <div className="bg-slate-50 p-4 rounded-xl space-y-3">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-slate-500">Membership Points (Auto)</span>
-                    <span className="font-bold">15 / yr</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-slate-500">Active Duty Points (From Above)</span>
-                    <span className="font-bold">{totalADDays}</span>
-                  </div>
-                  <div className="pt-2 border-t border-slate-200 flex justify-between font-bold text-blue-900">
-                    <span>Estimated Total Career Points</span>
-                    <span>{totalPoints}</span>
-                  </div>
-                </div>
-              </div>
-            </section>
-          </div>
-
-          {/* Sidebar: Pay & Summary */}
-          <div className="space-y-6">
-            {/* 2026 Pay Chart Logic */}
-            <div className="bg-white p-6 rounded-2xl shadow-sm border-2 border-blue-100">
-              <h3 className="text-sm font-bold text-blue-900 uppercase tracking-wider mb-4 flex items-center gap-2">
-                <DollarSign className="w-4 h-4" />
-                2026 Pay Lookup (DFAS)
-              </h3>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Projected Rank at Ret.</label>
-                  <div className="relative">
-                    <select 
-                      className="w-full appearance-none bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
-                      value={selectedRank}
-                      onChange={(e) => { setSelectedRank(e.target.value); setManualPay(null); }}
-                    >
-                      <optgroup label="Enlisted">
-                        {Object.keys(PAY_CHART_2026).filter(r => r.startsWith('E')).map(r => <option key={r} value={r}>{r}</option>)}
-                      </optgroup>
-                      <optgroup label="Officer">
-                        {Object.keys(PAY_CHART_2026).filter(r => r.startsWith('O')).map(r => <option key={r} value={r}>{r}</option>)}
-                      </optgroup>
-                    </select>
-                    <ChevronDown className="absolute right-3 top-2.5 w-4 h-4 text-slate-400 pointer-events-none" />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Longevity Step</label>
-                  <div className="relative">
-                    <select 
-                      className="w-full appearance-none bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
-                      value={selectedLongevity}
-                      onChange={(e) => { setSelectedLongevity(e.target.value); setManualPay(null); }}
-                    >
-                      {LONGEVITY_STEPS.map(s => <option key={s} value={s}>Over {s} Years</option>)}
-                    </select>
-                    <ChevronDown className="absolute right-3 top-2.5 w-4 h-4 text-slate-400 pointer-events-none" />
-                  </div>
-                </div>
-
-                <div className="pt-2">
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Monthly Basic Pay (2026)</label>
-                  <div className="flex items-center gap-2">
-                    <div className="relative flex-1">
-                      <span className="absolute left-3 top-2 text-slate-400">$</span>
-                      <input 
-                        type="number" 
-                        className={`w-full pl-7 pr-3 py-2 rounded-lg border text-sm font-bold ${manualPay === null ? 'bg-blue-50 border-blue-200 text-blue-900' : 'bg-white border-slate-200'}`}
-                        value={currentBasicPay}
-                        onChange={(e) => setManualPay(parseInt(e.target.value) || 0)}
-                      />
-                    </div>
-                    {manualPay !== null && (
-                      <button onClick={() => setManualPay(null)} className="text-[10px] text-blue-600 font-bold uppercase hover:underline">Reset</button>
-                    )}
-                  </div>
-                </div>
-              </div>
             </div>
-
-            {/* Results */}
-            <div className="bg-gradient-to-br from-blue-900 to-indigo-900 text-white p-6 rounded-2xl shadow-lg">
-              <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
-                <TrendingUp className="w-5 h-5 text-blue-300" />
-                Retirement Forecast
-              </h3>
-              
-              <div className="space-y-4 mb-8">
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-blue-200">Point Equivalent (Years)</span>
-                  <span className="font-mono font-bold">{reserveRetirementYears}</span>
-                </div>
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-blue-200">Legacy Multiplier</span>
-                  <span className="font-mono font-bold">2.50%</span>
-                </div>
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-blue-200">1405 Credit</span>
-                  <span className="font-mono font-bold text-yellow-400">{(totalPoints/30).toFixed(1)} Months</span>
-                </div>
-              </div>
-
-              <div className="pt-6 border-t border-blue-800">
-                <p className="text-[10px] text-blue-300 uppercase font-bold tracking-widest mb-1 text-center">Estimated Monthly Pension</p>
-                <div className="flex items-baseline justify-center gap-2">
-                  <span className="text-5xl font-black text-white">${estimatedMonthlyPay}</span>
-                </div>
-                <p className="text-[9px] text-blue-400 mt-4 text-center leading-tight">
-                  Estimation based on 2026 basic pay rates. Does not account for inflation or COLA adjustments.
-                </p>
-              </div>
-            </div>
-
-            <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl">
-              <h4 className="text-amber-800 font-bold text-xs flex items-center gap-2 mb-2">
-                <Info className="w-4 h-4" />
-                Note on "High-3"
-              </h4>
-              <p className="text-[10px] text-amber-900/70 leading-relaxed">
-                Retirement pay is technically the average of your highest 36 months of basic pay. This tool uses the 2026 chart as a proxy for your final pay grade.
-              </p>
-            </div>
-          </div>
         </div>
-      </div>
-    </div>
-  );
-};
 
-export default App;
+        <footer class="mt-12 text-center text-slate-400 text-sm pb-12 no-print border-t border-slate-200 pt-8">
+            <p class="mb-2">© 2026 ANG TAFMS Tool • Designed for Air National Guard Planning</p>
+            <div id="status-check" class="inline-flex items-center gap-2 bg-slate-100 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span> App Ready
+            </div>
+        </footer>
+    </div>
+
+    <script>
+        // Data: 2026 Basic Pay Tables (Est 3.8% Increase)
+        const PAY_CHART = {
+            "E-4": { "<2": 3142, "2": 3303, "3": 3482, "4": 3659, "6": 3815, "8": 3815, "10": 3815, "12": 3815, "14": 3815, "16": 3815, "18": 3815, "20": 3815, "22": 3815, "24": 3815, "26": 3815, "30": 3815 },
+            "E-5": { "<2": 3343, "2": 3598, "3": 3776, "4": 3947, "6": 4110, "8": 4300, "10": 4510, "12": 4510, "14": 4510, "16": 4510, "18": 4510, "20": 4510, "22": 4510, "24": 4510, "26": 4510, "30": 4510 },
+            "E-6": { "<2": 3401, "2": 3743, "3": 3908, "4": 4068, "6": 4236, "8": 4613, "10": 4759, "12": 5043, "14": 5130, "16": 5194, "18": 5268, "20": 5268, "22": 5268, "24": 5268, "26": 5268, "30": 5268 },
+            "E-7": { "<2": 3932, "2": 4291, "3": 4456, "4": 4673, "6": 4844, "8": 5136, "10": 5300, "12": 5591, "14": 5834, "16": 6001, "18": 6177, "20": 6246, "22": 6475, "24": 6598, "26": 7067, "30": 7067 },
+            "E-8": { "8": 6811, "10": 5907, "12": 6061, "14": 6247, "16": 6448, "18": 6811, "20": 6995, "22": 7308, "24": 7482, "26": 7909, "30": 8067 },
+            "E-9": { "10": 6910, "12": 7067, "14": 7264, "16": 7496, "18": 7731, "20": 8105, "22": 8423, "24": 8756, "26": 9268, "30": 9731 },
+            "O-1": { "<2": 4150, "2": 4320, "3": 5222, "4": 5222, "6": 5222, "30": 5222 },
+            "O-3": { "<2": 5535, "2": 6273, "3": 6771, "4": 7383, "6": 7737, "8": 8125, "10": 8376, "12": 8788, "14": 9004, "16": 9004, "18": 9004, "20": 9004, "30": 9004 },
+            "O-4": { "<2": 6294, "2": 7286, "3": 7773, "4": 7881, "6": 8332, "8": 8816, "10": 9419, "12": 9887, "14": 10214, "16": 10401, "18": 10509, "20": 10509, "30": 10509 },
+            "O-5": { "<2": 7295, "2": 8219, "3": 8787, "4": 8894, "6": 9250, "8": 9461, "10": 9928, "12": 10272, "14": 10715, "16": 11391, "18": 11714, "20": 12033, "22": 12395, "30": 12395 },
+            "O-6": { "<2": 8751, "2": 9614, "3": 10245, "4": 10245, "6": 10284, "8": 10725, "10": 10783, "12": 10783, "14": 11396, "16": 12480, "18": 13116, "20": 13751, "22": 14113, "24": 14479, "26": 15189, "30": 15189 }
+        };
+
+        let periods = [{ id: Date.now(), desc: 'Initial Entry', start: '', end: '' }];
+
+        function addPeriod(data = null) {
+            const period = data || { id: Date.now(), desc: '', start: '', end: '' };
+            if (!data) periods.push(period);
+            
+            const container = document.getElementById('periods-container');
+            const div = document.createElement('div');
+            div.id = `period-${period.id}`;
+            div.className = "grid grid-cols-1 md:grid-cols-12 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100 items-end relative transition-all";
+            div.innerHTML = `
+                <div class="md:col-span-4">
+                    <label class="text-[10px] font-bold text-slate-400 uppercase">Description</label>
+                    <input type="text" value="${period.desc}" oninput="updatePeriod(${period.id}, 'desc', this.value)" class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div class="md:col-span-3">
+                    <label class="text-[10px] font-bold text-slate-400 uppercase">Start Date</label>
+                    <input type="date" value="${period.start}" oninput="updatePeriod(${period.id}, 'start', this.value)" class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div class="md:col-span-3">
+                    <label class="text-[10px] font-bold text-slate-400 uppercase">End Date</label>
+                    <input type="date" value="${period.end}" oninput="updatePeriod(${period.id}, 'end', this.value)" class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div class="md:col-span-2 flex items-center justify-end gap-3 no-print">
+                    <div class="text-center mr-2">
+                        <span class="text-[9px] text-slate-400 font-bold uppercase block">Days</span>
+                        <span class="text-xs font-mono font-bold text-blue-600">${calculateDays(period.start, period.end)}</span>
+                    </div>
+                    <button onclick="removePeriod(${period.id})" class="p-2 text-slate-300 hover:text-red-500 transition-colors"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                </div>
+            `;
+            container.appendChild(div);
+            lucide.createIcons();
+            calculate();
+        }
+
+        function calculateDays(start, end) {
+            if (!start || !end) return 0;
+            const s = new Date(start);
+            const e = new Date(end);
+            const diff = Math.ceil((e - s) / (1000 * 60 * 60 * 24)) + 1;
+            return diff > 0 ? diff : 0;
+        }
+
+        function removePeriod(id) {
+            if (periods.length <= 1) return;
+            periods = periods.filter(p => p.id !== id);
+            document.getElementById(`period-${id}`).remove();
+            calculate();
+        }
+
+        function updatePeriod(id, field, value) {
+            const p = periods.find(p => p.id === id);
+            if (p) p[field] = value;
+            calculate();
+        }
+
+        function calculate() {
+            let totalAdDays = 0;
+            periods.forEach(p => {
+                totalAdDays += calculateDays(p.start, p.end);
+            });
+
+            const tafmsYears = (totalAdDays / 365.25).toFixed(2);
+            document.getElementById('total-tafms-display').innerText = `${tafmsYears} Years`;
+
+            const careerYears = parseInt(document.getElementById('career-years').value) || 0;
+            const drillPointsPerYear = parseInt(document.getElementById('drill-points').value) || 0;
+            const otherPoints = parseInt(document.getElementById('other-points').value) || 0;
+            
+            const totalPoints = (15 * careerYears) + (drillPointsPerYear * careerYears) + totalAdDays + otherPoints;
+            document.getElementById('total-points-display').innerText = totalPoints.toLocaleString();
+
+            const rank = document.getElementById('rank-select').value;
+            const longevity = document.getElementById('longevity-select').value;
+            const basicPay = PAY_CHART[rank] ? (PAY_CHART[rank][longevity] || PAY_CHART[rank]["<2"] || 0) : 0;
+            
+            document.getElementById('basic-pay-display').innerText = `$${basicPay.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+
+            const retYears = totalPoints / 360;
+            document.getElementById('point-years').innerText = retYears.toFixed(2);
+
+            const monthlyPension = retYears * 0.025 * basicPay;
+            document.getElementById('final-pension').innerText = `$${monthlyPension.toLocaleString(undefined, {maximumFractionDigits: 2})}`;
+            document.getElementById('credit-1405').innerText = `${(totalPoints / 30).toFixed(1)} Months`;
+        }
+
+        function parseText() {
+            const text = document.getElementById('pcars-input').value;
+            if (!text) return;
+
+            // Pattern for common PCARS date formats: 01-JAN-2020 or 2020/01/01
+            const dateRegex = /(\d{2}-[A-Z]{3}-\d{4})|(\d{4}[\/-]\d{2}[\/-]\d{2})/g;
+            const matches = text.match(dateRegex) || [];
+            
+            if (matches.length < 2) return;
+
+            // Clear existing
+            document.getElementById('periods-container').innerHTML = '';
+            periods = [];
+            
+            // Re-populate with parsed pairs
+            for(let i=0; i < matches.length - 1; i += 2) {
+                const startDate = new Date(matches[i]).toISOString().split('T')[0];
+                const endDate = new Date(matches[i+1]).toISOString().split('T')[0];
+                
+                const p = { 
+                    id: Date.now() + i, 
+                    desc: `Parsed Period ${Math.floor(i/2)+1}`, 
+                    start: startDate,
+                    end: endDate
+                };
+                periods.push(p);
+                addPeriod(p);
+            }
+
+            // Look for career years
+            const yrsMatch = text.match(/TOTAL YRS[:\s]+(\d+)/i);
+            if (yrsMatch) document.getElementById('career-years').value = yrsMatch[1];
+
+            document.getElementById('parse-status').classList.remove('hidden');
+            setTimeout(() => document.getElementById('parse-status').classList.add('hidden'), 3000);
+            calculate();
+        }
+
+        window.onload = () => {
+            addPeriod(periods[0]);
+            lucide.createIcons();
+            calculate();
+        };
+    </script>
+</body>
+</html>
