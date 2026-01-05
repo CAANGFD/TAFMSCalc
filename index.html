@@ -43,8 +43,8 @@
                     ANG TAFMS & Retirement Planner
                 </h1>
                 <div class="flex items-center gap-2 mt-1 no-print">
-                    <span class="bg-blue-100 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider">30-Day Month Arithmetic</span>
-                    <p class="text-slate-500 text-sm">Standardized Military Personnel Computation Rules</p>
+                    <span class="bg-blue-100 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider">Military Personnel Arithmetic</span>
+                    <p class="text-slate-500 text-sm">30-Day Month logic with Year conversion (Total Days ÷ 360)</p>
                 </div>
             </div>
             <div id="tafms-badge" class="bg-blue-600 text-white px-6 py-3 rounded-2xl shadow-lg flex items-center gap-4">
@@ -65,7 +65,7 @@
                     </div>
                     <div>
                         <h3 class="font-bold text-lg">Calculation Cutoff Date</h3>
-                        <p class="text-blue-300 text-xs">Periods spanning this date will be truncated to fit the cutoff.</p>
+                        <p class="text-blue-300 text-xs">Determine points/TAFMS accrued prior to a specific date. Spanning rows will be pro-rated.</p>
                     </div>
                 </div>
                 <div class="flex items-center gap-2">
@@ -320,16 +320,15 @@
         // Standard Military Personnel Arithmetic (30-day month)
         function calculateMilitaryDays(startStr, endStr) {
             if (!startStr || !endStr) return 0;
-            const s = new Date(startStr);
-            const e = new Date(endStr);
+            const s = new Date(startStr + 'T00:00:00');
+            const e = new Date(endStr + 'T00:00:00');
             
             let y1 = s.getFullYear(), m1 = s.getMonth() + 1, d1 = s.getDate();
             let y2 = e.getFullYear(), m2 = e.getMonth() + 1, d2 = e.getDate();
 
-            // Adjustments for 30-day month logic
             if (m1 === 2 && d1 >= 28) {
                 if (!isLeap(y1) || (isLeap(y1) && d1 === 29)) d1 = 30;
-                else if (isLeap(y1) && d1 === 28) d1 = 30; // 28th treated as 30 in non-leap
+                else if (isLeap(y1) && d1 === 28) d1 = 30;
             }
             if (m2 === 2 && d2 >= 28) {
                 if (!isLeap(y2) || (isLeap(y2) && d2 === 29)) d2 = 30;
@@ -341,6 +340,14 @@
 
             const diff = ((y2 - y1) * 360) + ((m2 - m1) * 30) + (d2 - d1) + 1;
             return diff > 0 ? diff : 0;
+        }
+
+        // Standard Actual Calendar Days (for Pro-rating ratio accuracy)
+        function getActualCalendarDays(startStr, endStr) {
+            if (!startStr || !endStr) return 0;
+            const s = new Date(startStr + 'T00:00:00');
+            const e = new Date(endStr + 'T00:00:00');
+            return Math.ceil((e - s) / (1000 * 60 * 60 * 24)) + 1;
         }
 
         function addPeriod(data = null) {
@@ -372,7 +379,7 @@
                     <button onclick="removePeriod(${period.id})" class="p-2 text-slate-300 hover:text-red-500 transition-colors"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
                 </div>
                 <div id="row-badge-${period.id}" class="absolute -top-2 -left-2 hidden">
-                     <span class="pro-rated-badge bg-blue-600 text-white text-[8px] font-black px-2 py-0.5 rounded-full shadow-sm uppercase">Cutoff Applied</span>
+                     <span class="pro-rated-badge bg-blue-600 text-white text-[8px] font-black px-2 py-0.5 rounded-full shadow-sm uppercase tracking-tighter">Cutoff Applied</span>
                 </div>
             `;
             container.appendChild(div);
@@ -407,15 +414,15 @@
                 const periodEnd = p.end ? new Date(p.end + 'T00:00:00') : null;
 
                 let isExcluded = false;
-                let effectiveEndStr = p.end;
                 let isProRated = false;
+                let effectiveEndStr = p.end;
 
                 if (cutoffDate && periodStart) {
                     if (periodStart > cutoffDate) {
                         isExcluded = true;
                     } else if (periodEnd && periodEnd > cutoffDate) {
-                        effectiveEndStr = cutoffStr;
                         isProRated = true;
+                        effectiveEndStr = cutoffStr;
                     }
                 }
 
@@ -431,27 +438,31 @@
 
                 if (!isExcluded) {
                     // Logic for pro-rating the day count
-                    const fullRangeDays = calculateMilitaryDays(p.start, p.end);
-                    const effectiveRangeDays = calculateMilitaryDays(p.start, effectiveEndStr);
+                    // We use Actual Calendar Days for the RATIO to be precise for individual orders,
+                    // but Military Days for the final TAFMS summary calculation.
+                    const fullRangeDaysActual = getActualCalendarDays(p.start, p.end);
+                    const effectiveRangeDaysActual = getActualCalendarDays(p.start, effectiveEndStr);
                     
                     let daysToUse = 0;
                     if (p.manualDays !== '' && p.manualDays !== null) {
-                        const manual = parseInt(p.manualDays);
-                        if (isProRated && fullRangeDays > 0) {
-                            // Pro-rate manual days based on the new range
-                            // Example: 365 manual days in a 365 range, shortened to 364 range = 364 days.
-                            daysToUse = Math.floor(manual * (effectiveRangeDays / fullRangeDays));
+                        const manualPoints = parseInt(p.manualDays);
+                        if (isProRated && fullRangeDaysActual > 0) {
+                            // Pro-rate the specific points allocated to this row
+                            // Math: (Original Points) * (New Smaller Range / Original Range)
+                            daysToUse = Math.round(manualPoints * (effectiveRangeDaysActual / fullRangeDaysActual));
                         } else {
-                            daysToUse = manual;
+                            daysToUse = manualPoints;
                         }
                     } else {
-                        daysToUse = effectiveRangeDays;
+                        // If no manual points, use the range count calculated by military arithmetic
+                        daysToUse = calculateMilitaryDays(p.start, effectiveEndStr);
                     }
                     
                     totalAdDays += (isNaN(daysToUse) ? 0 : daysToUse);
                 }
             });
 
+            // TAFMS Year calculation (Personnel standards: total days ÷ 360)
             const tafmsYearsRaw = totalAdDays / 360;
             const tafmsYearsDisp = tafmsYearsRaw.toFixed(2);
             document.getElementById('total-tafms-display').innerText = `${tafmsYearsDisp} Yrs (${totalAdDays} Days)`;
@@ -465,6 +476,7 @@
 
             document.getElementById('reserve-years-display').innerText = `${reserveYears.toFixed(2)} Yrs`;
 
+            // Reserve points calculation logic: Membership (15) + Yearly Drill (usually 48) for only the non-Active years
             const reservePoints = reserveYears * (15 + drillPointsPerYear);
             const totalPoints = Math.round(totalAdDays + reservePoints + otherPoints);
             
@@ -536,6 +548,7 @@
                             return; 
                         }
 
+                        // Aggregate row points typically appear as the first numeric token after dates
                         const adPoints = tokens[0] ? parseInt(tokens[0]) : 0;
 
                         if (adPoints > 0) {
