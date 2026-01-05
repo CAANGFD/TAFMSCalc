@@ -27,12 +27,7 @@
         .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         
-        /* Animation for parsing */
-        @keyframes pulse-blue {
-            0%, 100% { border-color: rgba(59, 130, 246, 0.5); }
-            50% { border-color: rgba(59, 130, 246, 1); }
-        }
-        .parsing-active { animation: pulse-blue 2s infinite; }
+        .excluded-period { opacity: 0.4; filter: grayscale(1); pointer-events: none; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 min-h-screen p-4 md:p-8">
@@ -46,18 +41,37 @@
                     ANG TAFMS & Retirement Planner
                 </h1>
                 <div class="flex items-center gap-2 mt-1 no-print">
-                    <span class="bg-green-100 text-green-700 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider">Projected 2026 Pay Rates</span>
-                    <p class="text-slate-500 text-sm">Unofficial planning tool for Air National Guard members</p>
+                    <span class="bg-blue-100 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider">30-Day Month Arithmetic</span>
+                    <p class="text-slate-500 text-sm">Standardized Military Personnel Computation Rules</p>
                 </div>
             </div>
             <div id="tafms-badge" class="bg-blue-600 text-white px-6 py-3 rounded-2xl shadow-lg flex items-center gap-4">
                 <div class="text-right">
                     <p class="text-xs opacity-80 uppercase font-bold tracking-wider">Total TAFMS</p>
-                    <p id="total-tafms-display" class="text-2xl font-mono">0.00 Years</p>
+                    <p id="total-tafms-display" class="text-xl md:text-2xl font-mono whitespace-nowrap">0.00 Yrs (0 Days)</p>
                 </div>
                 <i data-lucide="clock" class="w-8 h-8 opacity-50"></i>
             </div>
         </header>
+
+        <!-- Cutoff Date Filter -->
+        <div class="mb-8 no-print">
+            <div class="bg-blue-900 text-white p-6 rounded-3xl shadow-md flex flex-col md:flex-row items-center justify-between gap-4 border-b-4 border-blue-700">
+                <div class="flex items-center gap-4">
+                    <div class="bg-blue-800 p-3 rounded-2xl">
+                        <i data-lucide="filter" class="w-6 h-6 text-blue-300"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-lg">Calculation Cutoff Date</h3>
+                        <p class="text-blue-300 text-xs">Determine points/TAFMS accrued prior to a specific date.</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <input type="date" id="cutoff-date" class="bg-blue-800 border border-blue-700 text-white px-4 py-2 rounded-xl outline-none focus:ring-2 focus:ring-blue-400 font-bold" oninput="calculate()">
+                    <button onclick="document.getElementById('cutoff-date').value = ''; calculate();" class="text-xs font-bold uppercase opacity-60 hover:opacity-100 transition-opacity">Clear</button>
+                </div>
+            </div>
+        </div>
 
         <!-- PCARS Text Area -->
         <div class="mb-8 no-print">
@@ -66,7 +80,7 @@
                     <i data-lucide="zap" class="w-5 h-5 text-yellow-500"></i>
                     Quick Import from PCARS
                 </h3>
-                <p class="text-slate-500 text-sm mb-4">Paste the text from your <strong>vMPF Point Credit Summary</strong> below. The tool will scan for active duty dates and total years automatically.</p>
+                <p class="text-slate-500 text-sm mb-4">Paste text from your <strong>Point Credit Summary</strong>. The tool detects "AD" points automatically and filters out inactive "Z" status lines.</p>
                 <textarea id="pcars-input" placeholder="Paste PCARS text here..." class="w-full h-24 p-4 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none resize-none mb-3"></textarea>
                 <div class="flex justify-between items-center">
                     <button onclick="parseText()" class="bg-blue-600 text-white px-6 py-2 rounded-xl font-bold text-sm hover:bg-blue-700 transition-all flex items-center gap-2">
@@ -85,10 +99,15 @@
                 <!-- AD Periods -->
                 <section class="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 section-card">
                     <div class="flex items-center justify-between mb-6">
-                        <h2 class="text-lg font-bold flex items-center gap-2 text-blue-900">
-                            <i data-lucide="calendar" class="w-5 h-5 text-blue-500 no-print"></i>
-                            Active Duty Periods (TAFMS Calculation)
-                        </h2>
+                        <div class="flex items-center gap-2">
+                            <h2 class="text-lg font-bold text-blue-900">Active Duty Periods (TAFMS)</h2>
+                            <div class="group relative no-print">
+                                <i data-lucide="info" class="w-4 h-4 text-slate-300 cursor-help"></i>
+                                <div class="absolute bottom-full left-0 mb-2 w-64 p-3 bg-slate-800 text-white text-[10px] rounded-lg hidden group-hover:block z-50 shadow-xl">
+                                    Calculated using 30-day month rule. +1 day added to make dates inclusive.
+                                </div>
+                            </div>
+                        </div>
                         <button onclick="addPeriod()" class="no-print bg-blue-50 text-blue-600 hover:bg-blue-100 px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-1 transition-colors">
                             <i data-lucide="plus" class="w-4 h-4"></i> Add
                         </button>
@@ -107,12 +126,14 @@
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div class="space-y-4">
                             <div>
-                                <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Estimated Total Career Years</label>
+                                <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Total Career Longevity (Years)</label>
                                 <input type="number" id="career-years" value="20" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-purple-500 outline-none transition-all" oninput="calculate()">
+                                <p class="text-[10px] text-slate-400 mt-1 uppercase italic">Total years of service (PEBD to Projected Retirement)</p>
                             </div>
                             <div>
-                                <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Avg Drill Points / Year</label>
+                                <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Avg Drill Points / Year (Reserve Time)</label>
                                 <input type="number" id="drill-points" value="48" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-purple-500 outline-none transition-all" oninput="calculate()">
+                                <p class="text-[10px] text-slate-400 mt-1 uppercase italic">Only applied to non-Active Duty years</p>
                             </div>
                         </div>
                         <div class="bg-slate-50 p-6 rounded-2xl flex flex-col justify-center border border-slate-100">
@@ -120,12 +141,16 @@
                                 <span class="text-slate-500 text-sm">Membership Points</span>
                                 <span class="font-bold text-slate-700">15 / yr</span>
                             </div>
+                            <div class="flex justify-between items-center mb-2">
+                                <span class="text-slate-500 text-sm">Est. Reserve Years</span>
+                                <span id="reserve-years-display" class="font-bold text-purple-700">0.00 Yrs</span>
+                            </div>
                             <div class="flex justify-between items-center mb-4 pb-4 border-b border-slate-200">
                                 <span class="text-slate-500 text-sm">Correspondence/Misc</span>
                                 <input type="number" id="other-points" value="0" class="w-20 bg-transparent text-right font-bold text-slate-700 outline-none" oninput="calculate()">
                             </div>
                             <div class="flex justify-between items-center">
-                                <span class="font-bold text-blue-900">Estimated Total Points</span>
+                                <span class="font-bold text-blue-900">Final Projected Points</span>
                                 <span id="total-points-display" class="text-2xl font-mono font-bold text-blue-600">0</span>
                             </div>
                         </div>
@@ -230,6 +255,36 @@
             </div>
         </div>
 
+        <!-- Rules & Definitions -->
+        <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6 no-print">
+            <div class="bg-amber-50 border border-amber-200 rounded-3xl p-6">
+                <h4 class="text-amber-900 font-extrabold text-sm mb-3 flex items-center gap-2">
+                    <i data-lucide="alert-triangle" class="w-4 h-4"></i> Computation Rules (Military Arithmetic)
+                </h4>
+                <ul class="text-[11px] text-amber-800 space-y-2 list-disc pl-4">
+                    <li><strong>30-Day Month:</strong> Each month is considered to have 30 days.</li>
+                    <li><strong>February Adjustment:</strong> Feb 28 is computed as 30 days in non-leap years. Feb 29 remains Feb 29.</li>
+                    <li><strong>Inclusive Dates:</strong> Adding +1 day to differences to include both start and end dates.</li>
+                    <li><strong>Year Conversion:</strong> For TAFMS years, total days are divided by 360 per personnel standards.</li>
+                </ul>
+            </div>
+            <div class="bg-slate-100 border border-slate-200 rounded-3xl p-6">
+                <h4 class="text-slate-900 font-extrabold text-sm mb-3 flex items-center gap-2">
+                    <i data-lucide="list" class="w-4 h-4"></i> Creditable vs Excluded
+                </h4>
+                <div class="grid grid-cols-2 gap-4 text-[10px]">
+                    <div>
+                        <p class="font-bold text-green-700 uppercase mb-1">Included</p>
+                        <p class="text-slate-600 italic">Title 10/32 ADT, National Guard Duty, Academy Service (Enlisted only).</p>
+                    </div>
+                    <div>
+                        <p class="font-bold text-red-700 uppercase mb-1">Excluded</p>
+                        <p class="text-slate-600 italic">USUHS/HPSP students, Inactive Reserve section (ISLRS) after 1958, unauthorized absence.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <footer class="mt-12 text-center text-slate-400 text-sm pb-12 no-print border-t border-slate-200 pt-8">
             <p class="mb-2">© 2026 ANG TAFMS Tool • Designed for Air National Guard Planning</p>
             <div id="status-check" class="inline-flex items-center gap-2 bg-slate-100 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest text-slate-500">
@@ -254,16 +309,47 @@
             "O-6": { "<2": 8751, "2": 9614, "3": 10245, "4": 10245, "6": 10284, "8": 10725, "10": 10783, "12": 10783, "14": 11396, "16": 12480, "18": 13116, "20": 13751, "22": 14113, "24": 14479, "26": 15189, "30": 15189 }
         };
 
-        let periods = [{ id: Date.now(), desc: 'Initial Entry', start: '', end: '' }];
+        let periods = [{ id: Date.now(), desc: 'Initial Entry', start: '', end: '', manualDays: '' }];
+
+        function isLeap(year) {
+            return ((year % 4 === 0) && (year % 100 !== 0)) || (year % 400 === 0);
+        }
+
+        // Standard Military Personnel Arithmetic (30-day month)
+        function calculateMilitaryDays(startStr, endStr) {
+            if (!startStr || !endStr) return 0;
+            const s = new Date(startStr);
+            const e = new Date(endStr);
+            
+            let y1 = s.getFullYear(), m1 = s.getMonth() + 1, d1 = s.getDate();
+            let y2 = e.getFullYear(), m2 = e.getMonth() + 1, d2 = e.getDate();
+
+            // Adjustments for 30-day month logic
+            if (m1 === 2 && d1 >= 28) {
+                if (!isLeap(y1) || (isLeap(y1) && d1 === 29)) d1 = 30;
+                else if (isLeap(y1) && d1 === 28) d1 = 30; // 28th treated as 30 in non-leap
+            }
+            if (m2 === 2 && d2 >= 28) {
+                if (!isLeap(y2) || (isLeap(y2) && d2 === 29)) d2 = 30;
+                else if (isLeap(y2) && d2 === 28) d2 = 30;
+            }
+
+            if (d1 === 31) d1 = 30;
+            if (d2 === 31) d2 = 30;
+
+            // Difference + 1 for inclusion
+            const diff = ((y2 - y1) * 360) + ((m2 - m1) * 30) + (d2 - d1) + 1;
+            return diff > 0 ? diff : 0;
+        }
 
         function addPeriod(data = null) {
-            const period = data || { id: Date.now(), desc: '', start: '', end: '' };
+            const period = data || { id: Date.now(), desc: '', start: '', end: '', manualDays: '' };
             if (!data) periods.push(period);
             
             const container = document.getElementById('periods-container');
             const div = document.createElement('div');
             div.id = `period-${period.id}`;
-            div.className = "grid grid-cols-1 md:grid-cols-12 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100 items-end relative transition-all";
+            div.className = "grid grid-cols-1 md:grid-cols-12 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100 items-end relative transition-all period-row";
             div.innerHTML = `
                 <div class="md:col-span-4">
                     <label class="text-[10px] font-bold text-slate-400 uppercase">Description</label>
@@ -279,8 +365,8 @@
                 </div>
                 <div class="md:col-span-2 flex items-center justify-end gap-3 no-print">
                     <div class="text-center mr-2">
-                        <span class="text-[9px] text-slate-400 font-bold uppercase block">Days</span>
-                        <span class="text-xs font-mono font-bold text-blue-600">${calculateDays(period.start, period.end)}</span>
+                        <label class="text-[9px] text-slate-400 font-bold uppercase block">Active Days</label>
+                        <input type="number" value="${period.manualDays}" placeholder="${calculateMilitaryDays(period.start, period.end)}" oninput="updatePeriod(${period.id}, 'manualDays', this.value)" class="w-16 bg-white border border-slate-200 text-center text-xs font-bold text-blue-600 rounded-md py-1">
                     </div>
                     <button onclick="removePeriod(${period.id})" class="p-2 text-slate-300 hover:text-red-500 transition-colors"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
                 </div>
@@ -288,14 +374,6 @@
             container.appendChild(div);
             lucide.createIcons();
             calculate();
-        }
-
-        function calculateDays(start, end) {
-            if (!start || !end) return 0;
-            const s = new Date(start);
-            const e = new Date(end);
-            const diff = Math.ceil((e - s) / (1000 * 60 * 60 * 24)) + 1;
-            return diff > 0 ? diff : 0;
         }
 
         function removePeriod(id) {
@@ -313,31 +391,73 @@
 
         function calculate() {
             let totalAdDays = 0;
+            const cutoffStr = document.getElementById('cutoff-date').value;
+            const cutoff = cutoffStr ? new Date(cutoffStr) : null;
+
             periods.forEach(p => {
-                totalAdDays += calculateDays(p.start, p.end);
+                const rowEl = document.getElementById(`period-${p.id}`);
+                const periodEnd = p.end ? new Date(p.end) : null;
+                const periodStart = p.start ? new Date(p.start) : null;
+
+                let isExcluded = false;
+                if (cutoff) {
+                    if (periodStart && periodStart > cutoff) isExcluded = true;
+                    else if (periodEnd && periodEnd > cutoff) isExcluded = true;
+                }
+
+                if (rowEl) {
+                    if (isExcluded) rowEl.classList.add('excluded-period');
+                    else rowEl.classList.remove('excluded-period');
+                }
+
+                if (!isExcluded) {
+                    const days = p.manualDays !== '' && p.manualDays !== null ? parseInt(p.manualDays) : calculateMilitaryDays(p.start, p.end);
+                    totalAdDays += (isNaN(days) ? 0 : days);
+                }
             });
 
-            const tafmsYears = (totalAdDays / 365.25).toFixed(2);
-            document.getElementById('total-tafms-display').innerText = `${tafmsYears} Years`;
+            // TAFMS Years (Actual days / 360)
+            const tafmsYearsRaw = totalAdDays / 360;
+            const tafmsYearsDisp = tafmsYearsRaw.toFixed(2);
+            document.getElementById('total-tafms-display').innerText = `${tafmsYearsDisp} Yrs (${totalAdDays} Days)`;
 
-            const careerYears = parseInt(document.getElementById('career-years').value) || 0;
+            // Longevity & Points logic refined for AGRs
+            const totalCareerYears = parseFloat(document.getElementById('career-years').value) || 0;
             const drillPointsPerYear = parseInt(document.getElementById('drill-points').value) || 0;
             const otherPoints = parseInt(document.getElementById('other-points').value) || 0;
             
-            const totalPoints = (15 * careerYears) + (drillPointsPerYear * careerYears) + totalAdDays + otherPoints;
+            // Calculate Remaining Reserve Years (Total Career - Active TAFMS years)
+            // This prevents double-counting drill points for years where the member was Active/AGR
+            let reserveYears = totalCareerYears - tafmsYearsRaw;
+            if (reserveYears < 0) reserveYears = 0;
+
+            document.getElementById('reserve-years-display').innerText = `${reserveYears.toFixed(2)} Yrs`;
+
+            // Final Point Estimate:
+            // 1. All days from Active Duty periods (Direct 1:1 points)
+            // 2. Remaining career years get Membership (15) + Projected Drill (48)
+            // 3. Any manual one-time other points
+            const reservePoints = reserveYears * (15 + drillPointsPerYear);
+            const totalPoints = Math.round(totalAdDays + reservePoints + otherPoints);
+            
             document.getElementById('total-points-display').innerText = totalPoints.toLocaleString();
 
+            // Pay Chart Lookup
             const rank = document.getElementById('rank-select').value;
             const longevity = document.getElementById('longevity-select').value;
             const basicPay = PAY_CHART[rank] ? (PAY_CHART[rank][longevity] || PAY_CHART[rank]["<2"] || 0) : 0;
             
             document.getElementById('basic-pay-display').innerText = `$${basicPay.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
 
-            const retYears = totalPoints / 360;
-            document.getElementById('point-years').innerText = retYears.toFixed(2);
+            // Retirement Formula
+            const pointYearsEquivalent = totalPoints / 360;
+            document.getElementById('point-years').innerText = pointYearsEquivalent.toFixed(2);
 
-            const monthlyPension = retYears * 0.025 * basicPay;
+            // Estimated Monthly Pension (Legacy High-3)
+            const monthlyPension = pointYearsEquivalent * 0.025 * basicPay;
             document.getElementById('final-pension').innerText = `$${monthlyPension.toLocaleString(undefined, {maximumFractionDigits: 2})}`;
+            
+            // 1405 Credit
             document.getElementById('credit-1405').innerText = `${(totalPoints / 30).toFixed(1)} Months`;
         }
 
@@ -348,69 +468,82 @@
             
             if (!text) return;
 
-            // Pattern for common PCARS date formats: 01-JAN-2020 or 2020/01/01
-            const dateRegex = /(\d{2}-[A-Z]{3}-\d{4})|(\d{4}[\/-]\d{2}[\/-]\d{2})/g;
-            const matches = text.match(dateRegex) || [];
+            const dateRegex = /(\d{1,2}[-\s][A-Z]{3}[-\s]\d{4})|(\d{4}[\/-]\d{2}[\/-]\d{2})/gi;
             
-            if (matches.length < 2) {
-                statusEl.classList.remove('hidden');
-                statusEl.classList.remove('text-blue-500');
-                statusEl.classList.add('text-red-500');
-                statusText.innerText = "No dates found in text";
-                return;
-            }
-
             const monthMap = {
                 JAN: '01', FEB: '02', MAR: '03', APR: '04', MAY: '05', JUN: '06',
                 JUL: '07', AUG: '08', SEP: '09', OCT: '10', NOV: '11', DEC: '12'
             };
 
             const normalizeDate = (dStr) => {
-                // If DD-MMM-YYYY
-                const parts = dStr.split('-');
-                if (parts.length === 3 && parts[1].length === 3) {
-                    const day = parts[0].padStart(2, '0');
-                    const month = monthMap[parts[1].toUpperCase()];
-                    const year = parts[2];
-                    if (month) return `${year}-${month}-${day}`;
+                const cleanStr = dStr.trim().replace(/[-\/]/g, ' ');
+                const parts = cleanStr.split(/\s+/);
+                if (parts.length === 3) {
+                    if (parts[1].length === 3 && monthMap[parts[1].toUpperCase()]) {
+                        const day = parts[0].padStart(2, '0');
+                        const month = monthMap[parts[1].toUpperCase()];
+                        const year = parts[2];
+                        return `${year}-${month}-${day}`;
+                    }
+                    if (parts[0].length === 4) {
+                        return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+                    }
                 }
-                // If YYYY/MM/DD or YYYY-MM-DD
-                return dStr.replace(/\//g, '-');
+                return null;
             };
 
-            // Clear existing
-            document.getElementById('periods-container').innerHTML = '';
-            periods = [];
-            
-            let count = 0;
-            // Re-populate with parsed pairs
-            for(let i=0; i < matches.length - 1; i += 2) {
-                try {
-                    const startDate = normalizeDate(matches[i]);
-                    const endDate = normalizeDate(matches[i+1]);
+            const lines = text.split('\n');
+            const foundPeriods = [];
+            let totalFound = 0;
+            let skippedZ = 0;
+
+            lines.forEach(line => {
+                const matches = line.match(dateRegex);
+                if (matches && matches.length === 2) {
+                    const startDate = normalizeDate(matches[0]);
+                    const endDate = normalizeDate(matches[1]);
                     
-                    const p = { 
-                        id: Date.now() + i, 
-                        desc: `Parsed Period ${Math.floor(i/2)+1}`, 
-                        start: startDate,
-                        end: endDate
-                    };
-                    periods.push(p);
-                    addPeriod(p);
-                    count++;
-                } catch(e) {
-                    console.error("Parse Error", e);
+                    if (startDate && endDate) {
+                        const remainingText = line.replace(matches[0], '').replace(matches[1], '').trim();
+                        const tokens = remainingText.split(/\s+/);
+                        const hasZStatus = tokens.some(token => token.toUpperCase().startsWith('Z'));
+
+                        if (hasZStatus) {
+                            skippedZ++;
+                            return; 
+                        }
+
+                        const adPoints = tokens[0] ? parseInt(tokens[0]) : 0;
+
+                        if (adPoints > 0) {
+                            foundPeriods.push({
+                                id: Date.now() + Math.random(),
+                                desc: `Imported Period`,
+                                start: startDate,
+                                end: endDate,
+                                manualDays: adPoints
+                            });
+                            totalFound++;
+                        }
+                    }
                 }
+            });
+
+            if (totalFound > 0) {
+                document.getElementById('periods-container').innerHTML = '';
+                periods = foundPeriods;
+                periods.forEach(p => addPeriod(p));
+
+                statusEl.classList.remove('hidden');
+                statusEl.classList.remove('text-red-500');
+                statusEl.classList.add('text-blue-500');
+                statusText.innerText = `Imported ${totalFound} periods (${skippedZ} inactive lines filtered)`;
+            } else {
+                statusEl.classList.remove('hidden');
+                statusEl.classList.remove('text-blue-500');
+                statusEl.classList.add('text-red-500');
+                statusText.innerText = skippedZ > 0 ? "Only inactive 'Z' lines found" : "No Active Duty (AD) points found";
             }
-
-            // Look for career years
-            const yrsMatch = text.match(/TOTAL YRS[:\s]+(\d+)/i);
-            if (yrsMatch) document.getElementById('career-years').value = yrsMatch[1];
-
-            statusEl.classList.remove('hidden');
-            statusEl.classList.remove('text-red-500');
-            statusEl.classList.add('text-blue-500');
-            statusText.innerText = `Imported ${count} periods successfully`;
             
             setTimeout(() => statusEl.classList.add('hidden'), 4000);
             calculate();
