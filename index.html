@@ -28,6 +28,8 @@
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         
         .excluded-period { opacity: 0.4; filter: grayscale(1); pointer-events: none; }
+        .pro-rated-badge { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 min-h-screen p-4 md:p-8">
@@ -63,7 +65,7 @@
                     </div>
                     <div>
                         <h3 class="font-bold text-lg">Calculation Cutoff Date</h3>
-                        <p class="text-blue-300 text-xs">Determine points/TAFMS accrued prior to a specific date.</p>
+                        <p class="text-blue-300 text-xs">Periods spanning this date will be truncated to fit the cutoff.</p>
                     </div>
                 </div>
                 <div class="flex items-center gap-2">
@@ -337,7 +339,6 @@
             if (d1 === 31) d1 = 30;
             if (d2 === 31) d2 = 30;
 
-            // Difference + 1 for inclusion
             const diff = ((y2 - y1) * 360) + ((m2 - m1) * 30) + (d2 - d1) + 1;
             return diff > 0 ? diff : 0;
         }
@@ -366,9 +367,12 @@
                 <div class="md:col-span-2 flex items-center justify-end gap-3 no-print">
                     <div class="text-center mr-2">
                         <label class="text-[9px] text-slate-400 font-bold uppercase block">Active Days</label>
-                        <input type="number" value="${period.manualDays}" placeholder="${calculateMilitaryDays(period.start, period.end)}" oninput="updatePeriod(${period.id}, 'manualDays', this.value)" class="w-16 bg-white border border-slate-200 text-center text-xs font-bold text-blue-600 rounded-md py-1">
+                        <input type="number" id="manual-days-${period.id}" value="${period.manualDays}" placeholder="${calculateMilitaryDays(period.start, period.end)}" oninput="updatePeriod(${period.id}, 'manualDays', this.value)" class="w-16 bg-white border border-slate-200 text-center text-xs font-bold text-blue-600 rounded-md py-1">
                     </div>
                     <button onclick="removePeriod(${period.id})" class="p-2 text-slate-300 hover:text-red-500 transition-colors"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                </div>
+                <div id="row-badge-${period.id}" class="absolute -top-2 -left-2 hidden">
+                     <span class="pro-rated-badge bg-blue-600 text-white text-[8px] font-black px-2 py-0.5 rounded-full shadow-sm uppercase">Cutoff Applied</span>
                 </div>
             `;
             container.appendChild(div);
@@ -392,72 +396,91 @@
         function calculate() {
             let totalAdDays = 0;
             const cutoffStr = document.getElementById('cutoff-date').value;
-            const cutoff = cutoffStr ? new Date(cutoffStr) : null;
+            const cutoffDate = cutoffStr ? new Date(cutoffStr + 'T00:00:00') : null;
 
             periods.forEach(p => {
                 const rowEl = document.getElementById(`period-${p.id}`);
-                const periodEnd = p.end ? new Date(p.end) : null;
-                const periodStart = p.start ? new Date(p.start) : null;
+                const badgeEl = document.getElementById(`row-badge-${p.id}`);
+                const inputEl = document.getElementById(`manual-days-${p.id}`);
+                
+                const periodStart = p.start ? new Date(p.start + 'T00:00:00') : null;
+                const periodEnd = p.end ? new Date(p.end + 'T00:00:00') : null;
 
                 let isExcluded = false;
-                if (cutoff) {
-                    if (periodStart && periodStart > cutoff) isExcluded = true;
-                    else if (periodEnd && periodEnd > cutoff) isExcluded = true;
+                let effectiveEndStr = p.end;
+                let isProRated = false;
+
+                if (cutoffDate && periodStart) {
+                    if (periodStart > cutoffDate) {
+                        isExcluded = true;
+                    } else if (periodEnd && periodEnd > cutoffDate) {
+                        effectiveEndStr = cutoffStr;
+                        isProRated = true;
+                    }
                 }
 
                 if (rowEl) {
                     if (isExcluded) rowEl.classList.add('excluded-period');
                     else rowEl.classList.remove('excluded-period');
+                    
+                    if (badgeEl) {
+                        if (isProRated) badgeEl.classList.remove('hidden');
+                        else badgeEl.classList.add('hidden');
+                    }
                 }
 
                 if (!isExcluded) {
-                    const days = p.manualDays !== '' && p.manualDays !== null ? parseInt(p.manualDays) : calculateMilitaryDays(p.start, p.end);
-                    totalAdDays += (isNaN(days) ? 0 : days);
+                    // Logic for pro-rating the day count
+                    const fullRangeDays = calculateMilitaryDays(p.start, p.end);
+                    const effectiveRangeDays = calculateMilitaryDays(p.start, effectiveEndStr);
+                    
+                    let daysToUse = 0;
+                    if (p.manualDays !== '' && p.manualDays !== null) {
+                        const manual = parseInt(p.manualDays);
+                        if (isProRated && fullRangeDays > 0) {
+                            // Pro-rate manual days based on the new range
+                            // Example: 365 manual days in a 365 range, shortened to 364 range = 364 days.
+                            daysToUse = Math.floor(manual * (effectiveRangeDays / fullRangeDays));
+                        } else {
+                            daysToUse = manual;
+                        }
+                    } else {
+                        daysToUse = effectiveRangeDays;
+                    }
+                    
+                    totalAdDays += (isNaN(daysToUse) ? 0 : daysToUse);
                 }
             });
 
-            // TAFMS Years (Actual days / 360)
             const tafmsYearsRaw = totalAdDays / 360;
             const tafmsYearsDisp = tafmsYearsRaw.toFixed(2);
             document.getElementById('total-tafms-display').innerText = `${tafmsYearsDisp} Yrs (${totalAdDays} Days)`;
 
-            // Longevity & Points logic refined for AGRs
             const totalCareerYears = parseFloat(document.getElementById('career-years').value) || 0;
             const drillPointsPerYear = parseInt(document.getElementById('drill-points').value) || 0;
             const otherPoints = parseInt(document.getElementById('other-points').value) || 0;
             
-            // Calculate Remaining Reserve Years (Total Career - Active TAFMS years)
-            // This prevents double-counting drill points for years where the member was Active/AGR
             let reserveYears = totalCareerYears - tafmsYearsRaw;
             if (reserveYears < 0) reserveYears = 0;
 
             document.getElementById('reserve-years-display').innerText = `${reserveYears.toFixed(2)} Yrs`;
 
-            // Final Point Estimate:
-            // 1. All days from Active Duty periods (Direct 1:1 points)
-            // 2. Remaining career years get Membership (15) + Projected Drill (48)
-            // 3. Any manual one-time other points
             const reservePoints = reserveYears * (15 + drillPointsPerYear);
             const totalPoints = Math.round(totalAdDays + reservePoints + otherPoints);
             
             document.getElementById('total-points-display').innerText = totalPoints.toLocaleString();
 
-            // Pay Chart Lookup
             const rank = document.getElementById('rank-select').value;
             const longevity = document.getElementById('longevity-select').value;
             const basicPay = PAY_CHART[rank] ? (PAY_CHART[rank][longevity] || PAY_CHART[rank]["<2"] || 0) : 0;
             
             document.getElementById('basic-pay-display').innerText = `$${basicPay.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
 
-            // Retirement Formula
             const pointYearsEquivalent = totalPoints / 360;
             document.getElementById('point-years').innerText = pointYearsEquivalent.toFixed(2);
 
-            // Estimated Monthly Pension (Legacy High-3)
             const monthlyPension = pointYearsEquivalent * 0.025 * basicPay;
             document.getElementById('final-pension').innerText = `$${monthlyPension.toLocaleString(undefined, {maximumFractionDigits: 2})}`;
-            
-            // 1405 Credit
             document.getElementById('credit-1405').innerText = `${(totalPoints / 30).toFixed(1)} Months`;
         }
 
